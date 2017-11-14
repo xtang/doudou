@@ -140,19 +140,8 @@ func processP2PMessage(message bearychat.RTMMessage, state *State) {
 	textLower := strings.ToLower(message["text"].(string))
 	vChannelId := message["vchannel_id"].(string)
 	uid := message["uid"].(string)
-	todoHash := getTodoTaskHash(uid)
 	if strings.Contains(textLower, "todo") {
-		if message["refer_key"] != nil {
-			referKey := message["refer_key"].(string)
-			log.Printf("with refer: %s", referKey)
-			messageP, _ := state.RtmClient.Message.Info(vChannelId, referKey)
-			message = *messageP
-		}
-		text := strings.TrimSpace(message["text"].(string))
-		log.Printf("task [%s] added\n", text)
-		created := message["created_ts"].(float64)
-		ele := redis.Z{Score: created, Member: text}
-		state.RedisClient.ZAdd(todoHash, ele)
+		addTask(message, state)
 		sendMsg(uid, vChannelId, "添加成功，主人现在任务有: ", state)
 		time.Sleep(100 * time.Millisecond)
 		showTasks(uid, vChannelId, state)
@@ -169,6 +158,26 @@ func processP2PMessage(message bearychat.RTMMessage, state *State) {
 			info(uid, vChannelId, state)
 		}
 	}
+}
+
+func addTask(message bearychat.RTMMessage, state *State) {
+	vChannelId := message["vchannel_id"].(string)
+	uid := message["uid"].(string)
+	todoHash := getTodoTaskHash(uid)
+	if message["refer_key"] != nil {
+		referKey := message["refer_key"].(string)
+		log.Printf("with refer: %s", referKey)
+		messageP, _ := state.RtmClient.Message.Info(vChannelId, referKey)
+		message = *messageP
+	}
+	text := message["text"].(string)
+	text = strings.TrimSpace(text)
+	text = strings.TrimLeft(text, "todo")
+	text = strings.TrimSpace(text)
+	log.Printf("task [%s] added\n", text)
+	created := message["created_ts"].(float64)
+	ele := redis.Z{Score: created, Member: text}
+	state.RedisClient.ZAdd(todoHash, ele)
 }
 
 func clearTasks(message bearychat.RTMMessage, state *State) {
@@ -194,6 +203,9 @@ func showTasks(uid, vChannelId string, state *State) {
 		if len(todos) == 0 {
 			text = "工作都完成了，好棒!"
 		} else {
+			for i, _ := range todos {
+				todos[i] = strconv.Itoa(i+1) + ". " + todos[i]
+			}
 			text = strings.Join(todos, "\n")
 		}
 		sendMsg(uid, vChannelId, text, state)
