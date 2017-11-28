@@ -108,7 +108,7 @@ func processChannelMessage(message bearychat.RTMMessage, state *State) {
 				sendMsg(uid, vChannelId, response, state)
 			}
 		} else {
-			if strings.Contains(text, "后端") {
+			if shouldTellBigBro(text) {
 				userA, _ := state.RtmClient.User.Info(uid)
 				content := fmt.Sprintf("[%s：%s]", userA.Name, text)
 				sendToBaBa(content, state)
@@ -117,8 +117,16 @@ func processChannelMessage(message bearychat.RTMMessage, state *State) {
 	}
 }
 
+func shouldTellBigBro(text string) bool {
+	return strings.Contains(text, "后端")
+}
+
 func getTodoTaskHash(uid string) string {
 	return fmt.Sprintf("task:%s:todo", uid)
+}
+
+func getMonitorHash(uid string) string {
+	return fmt.Sprintf("monitor:%s", uid)
 }
 
 func createRedisClient() *redis.Client {
@@ -151,12 +159,41 @@ func processP2PMessage(message bearychat.RTMMessage, state *State) {
 		clearTasks(message, state)
 		sendMsg(uid, vChannelId, "任务清理成功，主人现在任务有: ", state)
 		showTasks(uid, vChannelId, state)
+	} else if strings.Contains(textLower, "monitor") {
+		addMonitor(message, state)
+		showMonitor(uid, vChannelId, state)
 	} else {
 		if response, ok := state.ATuring.Do(textLower, uid); ok {
 			sendMsg(uid, vChannelId, response, state)
 		} else {
 			info(uid, vChannelId, state)
 		}
+	}
+}
+
+func addMonitor(message bearychat.RTMMessage, state *State) {
+	uid := message["uid"].(string)
+	text := message["text"].(string)
+	monitorHash := getMonitorHash(uid)
+	text = strings.TrimSpace(text)
+	text = strings.TrimLeft(text, "monitor")
+	text = strings.TrimSpace(text)
+	state.RedisClient.SAdd(monitorHash, text)
+}
+
+func showMonitor(uid, vChannelId string, state *State) {
+	monitors, _ := state.RedisClient.SMembers(getMonitorHash(uid)).Result()
+	if monitors != nil {
+		var text string
+		if len(monitors) == 0 {
+			text = "No monitor worker"
+		} else {
+			text = "Monitoring: \n"
+			for i, _ := range monitors {
+				text = text + monitors[i] + "\t"
+			}
+		}
+		sendMsg(uid, vChannelId, text, state)
 	}
 }
 
